@@ -1,0 +1,1521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JSON Precision Auditor - find the numbers your parser changes without telling you</title>
+<meta name="description" content="Paste JSON and see which number literals change value when parsed as an IEEE 754 double, including the ones whose parsed value re-prints byte-for-byte identical to the literal you pasted.">
+<link rel="canonical" href="https://0xelitesystem.github.io/json-precision-auditor/">
+<meta property="og:title" content="JSON Precision Auditor">
+<meta property="og:description" content="Paste JSON and see which number literals change value when parsed as a double, including the ones that re-print byte-for-byte identical to what you pasted.">
+<meta property="og:url" content="https://0xelitesystem.github.io/json-precision-auditor/">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='18' fill='%230f5c60'/><text x='50' y='68' font-size='46' text-anchor='middle' fill='%23fafaf6' font-family='monospace'>1.0</text></svg>">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"JSON Precision Auditor","applicationCategory":"DeveloperApplication","operatingSystem":"Any (browser)","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://0xelitesystem.github.io/json-precision-auditor/","author":{"@type":"Person","name":"0xelitesystem","url":"https://elitesystem.ai"}}
+</script>
+<script>
+(function () {
+  var t = 'dark';
+  try {
+    var v = localStorage.getItem('jpa-theme');
+    if (v === 'light' || v === 'dark') { t = v; }
+  } catch (e) { t = 'dark'; }
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<style>
+:root {
+  --bg: #0c1c1d;
+  --surface: #14292a;
+  --surface-2: #102021;
+  --ink: #e8ebe6;
+  --ink-soft: #b3c2bf;
+  --ink-faint: #859997;
+  --rule: #2a4042;
+  --rule-soft: #1e3233;
+  --teal: #4ab4ba;
+  --teal-deep: #6dc8ce;
+  --gold: #d4a155;
+  --ok: #6dd380;
+  --warn: #d4a155;
+  --err: #f08c8c;
+  --code-bg: #0a1718;
+  --accent-ink: #06181a;
+}
+:root[data-theme="light"] {
+  --bg: #fafaf6;
+  --surface: #ffffff;
+  --surface-2: #f4f1e9;
+  --ink: #0a1d1e;
+  --ink-soft: #2c4a4c;
+  --ink-faint: #5d7375;
+  --rule: #c8d4d3;
+  --rule-soft: #e0e6e3;
+  --teal: #0f5c60;
+  --teal-deep: #0a4548;
+  --gold: #8a611f;
+  --ok: #1a5c2e;
+  --warn: #8a5a00;
+  --err: #8b1a1a;
+  --code-bg: #f0ebe1;
+  --accent-ink: #fafaf6;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 16px/1.6 ui-sans-serif, system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+code, pre, .mono, textarea, table.data { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px 64px; }
+.topbar {
+  display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between;
+  padding: 14px 16px; border-bottom: 1px solid var(--rule); background: var(--surface-2);
+}
+.topbar .brand { font-weight: 700; letter-spacing: 0.01em; color: var(--teal); }
+h1 { font-size: 1.85rem; line-height: 1.25; margin: 28px 0 6px; }
+h2 { font-size: 1.25rem; line-height: 1.3; margin: 36px 0 10px; border-bottom: 1px solid var(--rule-soft); padding-bottom: 6px; }
+h3 { font-size: 1.02rem; margin: 24px 0 8px; }
+p { margin: 10px 0; }
+/* Findings quote raw literals, and a 40 character digit run has no break opportunity.
+   Without this it pushes past the viewport at 360px instead of wrapping. */
+h1, h2, h3, p, li, dt, dd, blockquote { overflow-wrap: break-word; }
+.lede { color: var(--ink-soft); font-size: 1.03rem; max-width: 72ch; }
+.fine { color: var(--ink-faint); font-size: 0.87rem; }
+a { color: var(--teal-deep); }
+button {
+  font: inherit; font-size: 0.93rem; cursor: pointer;
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 6px; padding: 8px 13px;
+}
+button:hover { border-color: var(--teal); }
+button.primary { background: var(--teal); border-color: var(--teal); color: var(--accent-ink); font-weight: 600; }
+button.primary:hover { background: var(--teal-deep); border-color: var(--teal-deep); }
+.btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+textarea {
+  width: 100%; min-height: 220px; resize: vertical;
+  background: var(--code-bg); color: var(--ink);
+  border: 1px solid var(--rule); border-radius: 8px; padding: 12px;
+  font-size: 0.88rem; line-height: 1.5;
+}
+textarea:focus, button:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
+.hero { border: 1px solid var(--rule); border-left: 4px solid var(--err); border-radius: 8px; background: var(--surface); padding: 16px 18px; margin: 20px 0 8px; }
+.hero h2 { border: 0; margin: 4px 0 8px; padding: 0; font-size: 1.18rem; }
+.kicker { text-transform: uppercase; letter-spacing: 0.09em; font-size: 0.72rem; font-weight: 700; color: var(--err); margin: 0; }
+.panel { border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); padding: 14px 16px; margin: 14px 0; }
+.panel.sev1a { border-left: 4px solid var(--err); }
+.panel.sev1b { border-left: 4px solid var(--warn); }
+.panel.sev2 { border-left: 4px solid var(--teal); }
+.panel.sev3 { border-left: 4px solid var(--rule); }
+.panel.lane { border-left: 4px solid var(--gold); background: var(--surface-2); }
+.panel h3 { margin-top: 0; }
+.tw { overflow-x: auto; margin: 10px 0; border: 1px solid var(--rule-soft); border-radius: 6px; }
+table.data { width: 100%; min-width: 620px; border-collapse: collapse; font-size: 0.82rem; }
+table.data th, table.data td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+table.data th { background: var(--surface-2); color: var(--ink-soft); font-weight: 600; white-space: nowrap; }
+table.data tr:last-child td { border-bottom: 0; }
+table.data td.brk { word-break: break-all; }
+.tag { display: inline-block; font-size: 0.72rem; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--rule); color: var(--ink-soft); white-space: nowrap; }
+.tag.bad { color: var(--err); border-color: var(--err); }
+.tag.warn { color: var(--warn); border-color: var(--warn); }
+.tag.ok { color: var(--ok); border-color: var(--ok); }
+.stats { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.stat { flex: 1 1 150px; min-width: 0; border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; background: var(--surface-2); }
+.stat .n { font-size: 1.5rem; font-weight: 700; line-height: 1.15; }
+.stat .l { font-size: 0.78rem; color: var(--ink-faint); }
+.stat.hot .n { color: var(--err); }
+.msg { border: 1px solid var(--rule); border-left: 4px solid var(--warn); border-radius: 6px; padding: 10px 12px; background: var(--surface-2); margin: 12px 0; }
+.msg.err { border-left-color: var(--err); }
+.msg.ok { border-left-color: var(--ok); }
+pre { background: var(--code-bg); border: 1px solid var(--rule-soft); border-radius: 6px; padding: 12px; overflow-x: auto; font-size: 0.82rem; line-height: 1.5; margin: 10px 0; }
+code { background: var(--code-bg); border-radius: 4px; padding: 1px 5px; font-size: 0.88em; word-break: break-word; }
+blockquote { margin: 10px 0; padding: 8px 14px; border-left: 3px solid var(--rule); color: var(--ink-soft); background: var(--surface-2); border-radius: 0 6px 6px 0; }
+ul { padding-left: 20px; }
+li { margin: 6px 0; }
+dl.ladder { margin: 10px 0; }
+dl.ladder dt { font-weight: 600; margin-top: 12px; }
+dl.ladder dd { margin: 2px 0 0 0; color: var(--ink-soft); }
+footer { border-top: 1px solid var(--rule); margin-top: 44px; padding-top: 16px; color: var(--ink-faint); font-size: 0.88rem; }
+footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 8px; }
+.muted { color: var(--ink-faint); }
+.nowrap { white-space: nowrap; }
+@media (max-width: 480px) {
+  .wrap { padding: 0 12px 48px; }
+  h1 { font-size: 1.5rem; }
+  .hero, .panel { padding: 12px 13px; }
+  .stat .n { font-size: 1.25rem; }
+}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <span class="brand">JSON Precision Auditor</span>
+  <button id="themeBtn" type="button" aria-label="Switch color theme">Light theme</button>
+</div>
+
+<div class="wrap">
+
+<h1>JSON Precision Auditor</h1>
+<p class="lede">Paste JSON. This page lexes the raw text itself, computes the exact decimal value of every number literal with BigInt arithmetic, computes the exact value of the IEEE 754 double your parser will produce, and reports the difference. It ranks findings by whether the value survives a round trip, not by whether the value is exact.</p>
+
+<section class="hero">
+  <p class="kicker">Headline finding</p>
+  <h2>A literal can change value and still re-print byte-for-byte as what you pasted</h2>
+  <p>The obvious check for this is <code>String(JSON.parse(x)) !== x</code>: parse it, print it back, compare the text. It reports nothing for any of the three literals below, and all three change value. They are 17 to 19 digit IDs ending in round digits, which is what you receive when an upstream JavaScript service already round-tripped a bigint through a double before handing it to you.</p>
+  <div id="heroOut" class="tw"></div>
+  <p class="fine">Computed in this browser when the page loaded, from these three literals only. Nothing above is stored in the page as text.</p>
+</section>
+
+<h2>Audit your own JSON</h2>
+<p class="fine">Nothing leaves the browser. Large documents are audited in full; only the rendered tables are capped, and the cap always prints the real total.</p>
+<label for="src" class="fine">JSON input</label>
+<textarea id="src" spellcheck="false" placeholder='Paste JSON here, for example: {"id": 801730537304183000, "price": 19.99}'></textarea>
+<div class="btns">
+  <button id="runBtn" class="primary" type="button">Audit</button>
+  <button id="exBtn" type="button">Load example</button>
+  <button id="exBadBtn" type="button">Load non-standard example</button>
+  <button id="clearBtn" type="button">Clear</button>
+  <button id="copyTxtBtn" type="button">Copy report</button>
+  <button id="copyJsonBtn" type="button">Copy findings as JSON</button>
+</div>
+<p id="status" class="fine" role="status" aria-live="polite"></p>
+<div id="out"></div>
+
+<h2>How the ranking works</h2>
+<p>Findings are ordered by round-trip survival: whether the bytes you pasted come back out the other side, and whether the value behind them is the value you sent.</p>
+<dl class="ladder">
+  <dt>Severity 1, invisible</dt>
+  <dd>The literal is integer valued, the double holds a different integer, and the double re-prints as the exact same characters you pasted. The text round-trips. The value does not. The naive heuristic is silent here, which is why this class leads.</dd>
+  <dt>Severity 1, visible</dt>
+  <dd>The value changed and the re-print differs. Four sub-classes: an integer past 2^53-1 such as a Snowflake or Discord ID, a bigint primary key or a nanosecond timestamp; a decimal carrying more precision than binary64 holds; an exponent that overflows to IEEE 754 infinity; and a magnitude that underflows to zero.</dd>
+  <dt>Severity 2</dt>
+  <dd>The value is exact today, but the literal is an integer outside the interoperability range RFC 8259 names. Nothing is wrong with the value in a binary64 parser. The guarantee that every implementation agrees on it is gone.</dd>
+  <dt>Severity 3</dt>
+  <dd>Ordinary inexact decimals: the literal is not integer valued, the double is off by at most half an ulp, and the double re-prints identically. This collapses into one row with a count. A thousand row price list would otherwise produce a thousand findings with deltas near 1e-15 and bury the one that matters.</dd>
+  <dt>No value change, formatting only</dt>
+  <dd>The value survives exactly and only the spelling changes: <code>1.0</code>, <code>1e2</code>, <code>1.500</code>, <code>-0</code>. These are what the naive heuristic reports as damage. One row with a count.</dd>
+</dl>
+
+<h2>The naive heuristic, run beside the exact one</h2>
+<p>Every audit runs two engines over the same literals and prints both answers.</p>
+<ul>
+  <li><strong>Exact engine.</strong> The literal is converted to an exact decimal value in BigInt. The double is decomposed to sign, 11 bit exponent and 52 bit significand, and reconstructed as an exact decimal value in BigInt. The two are compared by cross multiplication. No floating point is used anywhere in the comparison.</li>
+  <li><strong>Naive engine.</strong> <code>String(JSON.parse(x)) !== x</code>, spelled exactly that way, run per literal.</li>
+</ul>
+<p>The summary prints how many literals the exact engine says changed, how many of those the naive engine misses, and how many literals the naive engine flags whose value did not change at all. Every one of those counts comes from the document you pasted.</p>
+<p>For every literal whose value changed, the exact engine also checks that the double is the correctly rounded nearest one, by verifying in BigInt that twice the absolute error is at most one ulp. That check is reported per document rather than assumed, because the double being compared against is the one this browser produced, which is the one your JavaScript code will see.</p>
+
+<h2>What this refuses to do</h2>
+<ul>
+  <li>It does not report per-key string versus number type drift. That falls out of a per-key type union during schema inference, and <a href="https://0xelitesystem.github.io/json-to-json-schema/">json-to-json-schema</a> already infers schemas from pasted JSON.</li>
+  <li>It does not rewrite your JSON. It does not suggest a fix, because the fix depends on a wire format decision only you can make: quote the ID as a string, use a BigInt aware parser, or accept the loss.</li>
+  <li>It does not tell you whether your production system is broken. Every verdict on this page is a property of the text in the box.</li>
+  <li>It refuses input above 4,000,000 characters rather than freezing the tab, and prints the size it received.</li>
+  <li>It refuses exact comparison on a single literal carrying more than 20,000 digits, and says so in the row instead of guessing.</li>
+</ul>
+
+<h2>Sources</h2>
+<p>RFC 8259, section 6, Numbers. Quoted verbatim:</p>
+<blockquote>This specification allows implementations to set limits on the range and precision of numbers accepted.</blockquote>
+<blockquote>Note that when such software is used, numbers that are integers and are in the range [-(2**53)+1, (2**53)-1] are interoperable in the sense that implementations will agree exactly on their numeric values.</blockquote>
+<blockquote>A JSON number such as 1E400 or 3.141592653589793238462643383279 may indicate potential interoperability problems, since it suggests that the software that created it expects receiving software to have greater capabilities for numeric magnitude and precision than is widely available.</blockquote>
+<blockquote>Numeric values that cannot be represented in the grammar below (such as Infinity and NaN) are not permitted.</blockquote>
+<blockquote>Leading zeros are not allowed.</blockquote>
+<p>The grammar itself carries no magnitude or precision bound. The repetition operators are unbounded, so an arbitrarily long integer part, fraction part and exponent are all well formed JSON. RFC 8259, section 6, quoted verbatim:</p>
+<pre>      number = [ minus ] int [ frac ] [ exp ]
+
+      decimal-point = %x2E       ; .
+
+      digit1-9 = %x31-39         ; 1-9
+
+      e = %x65 / %x45            ; e E
+
+      exp = e [ minus / plus ] 1*DIGIT
+
+      frac = decimal-point 1*DIGIT
+
+      int = zero / ( digit1-9 *DIGIT )
+
+      minus = %x2D               ; -
+
+      plus = %x2B                ; +
+
+      zero = %x30                ; 0</pre>
+<p class="fine">Source: <a href="https://www.rfc-editor.org/rfc/rfc8259#section-6">https://www.rfc-editor.org/rfc/rfc8259#section-6</a>. That is why the grammar lane on this page is reported separately from the value lane: a literal can be perfectly legal JSON and still be a value your parser cannot hold, and a literal can be rejected by a strict parser while its value is exactly representable.</p>
+
+<footer>
+  <nav>
+    <a href="https://elitesystem.ai">An elitesystem.ai tool</a>
+    <a href="https://github.com/0xelitesystem/json-precision-auditor">Source</a>
+    <a href="https://0xelitesystem.github.io/">More tools</a>
+  </nav>
+  <p class="fine">MIT licensed. One HTML file, no dependencies, no network calls, no storage beyond the theme setting.</p>
+</footer>
+
+</div>
+
+<script>
+'use strict';
+
+var MAX_INPUT_CHARS = 4000000;
+var MAX_ROWS = 200;
+var MAX_EXPORT = 5000;
+var MAX_DIGITS = 20000;
+var TWO53_MINUS_1 = 9007199254740991n;
+var HUGE_EXP = 400;
+/* Hard ceiling on any 10^k this page is ever allowed to build. A binary64 runs out of
+   magnitude near 1e309 and of resolution near 1e-324, so nothing beyond this is needed
+   for an exact comparison, and building it would allocate for minutes. */
+var MAX_POW10 = 24000;
+
+function fmtInt(n) {
+  var s = String(n);
+  var out = '';
+  var c = 0;
+  for (var i = s.length - 1; i >= 0; i--) {
+    out = s.charAt(i) + out;
+    c++;
+    if (c % 3 === 0 && i > 0 && s.charAt(i - 1) >= '0' && s.charAt(i - 1) <= '9') { out = ',' + out; }
+  }
+  return out;
+}
+
+/* ---------------- exact rational helpers ---------------- */
+/* A Dec is { n: signed BigInt, k: non-negative integer }, value = n / 10^k. */
+
+var P10 = new Map();
+function pow10(k) {
+  if (k < 0) { throw new RangeError('pow10 requires a non-negative exponent'); }
+  if (k > MAX_POW10) { throw new RangeError('exponent above the exact comparison ceiling'); }
+  var v = P10.get(k);
+  if (v === undefined) {
+    v = 10n ** BigInt(k);
+    if (P10.size < 4096) { P10.set(k, v); }
+  }
+  return v;
+}
+var P5 = new Map();
+function pow5(k) {
+  if (k < 0) { throw new RangeError('pow5 requires a non-negative exponent'); }
+  if (k > MAX_POW10) { throw new RangeError('exponent above the exact comparison ceiling'); }
+  var v = P5.get(k);
+  if (v === undefined) {
+    v = 5n ** BigInt(k);
+    if (P5.size < 4096) { P5.set(k, v); }
+  }
+  return v;
+}
+function mkDec(n, k) { return { n: n, k: k }; }
+function decAlign(a, b) {
+  var k = a.k > b.k ? a.k : b.k;
+  var an = a.k === k ? a.n : a.n * pow10(k - a.k);
+  var bn = b.k === k ? b.n : b.n * pow10(k - b.k);
+  return [an, bn, k];
+}
+function decCmp(a, b) {
+  var r = decAlign(a, b);
+  if (r[0] < r[1]) { return -1; }
+  if (r[0] > r[1]) { return 1; }
+  return 0;
+}
+function decSub(a, b) {
+  var r = decAlign(a, b);
+  return mkDec(r[0] - r[1], r[2]);
+}
+function decAbs(a) { return mkDec(a.n < 0n ? -a.n : a.n, a.k); }
+function decIsZero(a) { return a.n === 0n; }
+function decIsInteger(a) {
+  if (a.k === 0) { return true; }
+  return a.n % pow10(a.k) === 0n;
+}
+function decToIntegerBigInt(a) {
+  if (a.k === 0) { return a.n; }
+  return a.n / pow10(a.k);
+}
+function repeatZeros(n) {
+  var s = '';
+  var chunk = '0000000000';
+  while (s.length + 10 <= n) { s += chunk; }
+  while (s.length < n) { s += '0'; }
+  return s;
+}
+function decToString(a) {
+  var neg = a.n < 0n;
+  var s = (neg ? -a.n : a.n).toString();
+  if (a.k === 0) { return (neg ? '-' : '') + s; }
+  if (s.length <= a.k) { s = repeatZeros(a.k - s.length + 1) + s; }
+  var whole = s.slice(0, s.length - a.k);
+  var frac = s.slice(s.length - a.k);
+  var end = frac.length;
+  while (end > 0 && frac.charAt(end - 1) === '0') { end--; }
+  frac = frac.slice(0, end);
+  return (neg ? '-' : '') + whole + (frac.length ? '.' + frac : '');
+}
+function clipDigits(str, maxLen) {
+  if (str.length <= maxLen) { return { text: str, clipped: false, len: str.length }; }
+  return { text: str.slice(0, maxLen) + '... (' + str.length + ' characters total)', clipped: true, len: str.length };
+}
+function signedDecString(a) {
+  if (decIsZero(a)) { return '0'; }
+  var s = decToString(a);
+  return a.n > 0n ? '+' + s : s;
+}
+
+/* Ratio of two non-negative BigInts, rendered with sig significant digits. */
+function ratioSci(n, d, sig) {
+  if (d === 0n) { return 'undefined'; }
+  if (n === 0n) { return '0'; }
+  var nd = n.toString().length;
+  var dd = d.toString().length;
+  var k = sig + 3 + (dd - nd);
+  if (k < 0) { k = 0; }
+  var q = (n * pow10(k)) / d;
+  var guard = 0;
+  while (q.toString().length < sig && guard < 40) { k += sig + 2; q = (n * pow10(k)) / d; guard++; }
+  var s = q.toString();
+  if (s === '0') { return '0'; }
+  var exp = s.length - 1 - k;
+  var digits;
+  if (s.length <= sig) {
+    digits = s + repeatZeros(sig - s.length);
+  } else {
+    digits = s.slice(0, sig);
+    if (s.charCodeAt(sig) - 48 >= 5) {
+      var inc = (BigInt(digits) + 1n).toString();
+      if (inc.length > sig) { digits = inc.slice(0, sig); exp += 1; }
+      else { digits = inc; }
+    }
+  }
+  var mant = digits.charAt(0) + (sig > 1 ? '.' + digits.slice(1) : '');
+  return mant + 'e' + (exp >= 0 ? '+' : '-') + Math.abs(exp);
+}
+
+/* ---------------- double decomposition ---------------- */
+
+var DV = new DataView(new ArrayBuffer(8));
+function doubleParts(d) {
+  DV.setFloat64(0, d);
+  var bits = (BigInt(DV.getUint32(0)) << 32n) | BigInt(DV.getUint32(4));
+  var neg = ((bits >> 63n) & 1n) === 1n;
+  var be = Number((bits >> 52n) & 0x7ffn);
+  var mant = bits & 0xfffffffffffffn;
+  var M;
+  var E;
+  if (be === 0) { M = mant; E = -1074; } else { M = mant + (1n << 52n); E = be - 1075; }
+  return { M: M, E: E, neg: neg };
+}
+function doubleToDec(d) {
+  var p = doubleParts(d);
+  var dec;
+  if (p.E >= 0) { dec = mkDec(p.M << BigInt(p.E), 0); }
+  else { dec = mkDec(p.M * pow5(-p.E), -p.E); }
+  if (p.neg) { dec = mkDec(-dec.n, dec.k); }
+  return dec;
+}
+function ulpDec(d) {
+  var p = doubleParts(d);
+  if (p.E >= 0) { return mkDec(1n << BigInt(p.E), 0); }
+  return mkDec(pow5(-p.E), -p.E);
+}
+
+/* ---------------- number token classification ---------------- */
+
+function isDigitCh(ch) { return ch >= '0' && ch <= '9'; }
+
+function stripLeadingZeros(s) {
+  var i = 0;
+  while (i < s.length - 1 && s.charAt(i) === '0') { i++; }
+  return s.slice(i);
+}
+
+/*
+  Returns:
+    conforming : true when the token matches the RFC 8259 number grammar exactly
+    valued     : true when an unambiguous exact decimal value can be derived
+    reasons    : list of grammar problems, in reading order
+*/
+function classifyNumber(t) {
+  var reasons = [];
+  var n = t.length;
+  if (n === 0) { return { numberLike: false, conforming: false, valued: false, reasons: ['empty token'] }; }
+  var lower = t.toLowerCase();
+  if (lower === 'nan' || lower === '-nan' || lower === '+nan') {
+    return { numberLike: true, conforming: false, valued: false, reasons: ['NaN is not in the RFC 8259 number grammar'] };
+  }
+  if (lower === 'infinity' || lower === '-infinity' || lower === '+infinity' || lower === 'inf' || lower === '-inf' || lower === '+inf') {
+    return { numberLike: true, conforming: false, valued: false, reasons: ['Infinity is not in the RFC 8259 number grammar'] };
+  }
+  var i = 0;
+  var sign = 1;
+  var c0 = t.charAt(0);
+  if (c0 === '+') { reasons.push('a leading plus sign is not allowed'); i = 1; }
+  else if (c0 === '-') { sign = -1; i = 1; }
+  var rest = t.slice(i);
+  if (!(rest.length > 0 && (isDigitCh(rest.charAt(0)) || rest.charAt(0) === '.'))) {
+    return { numberLike: false, conforming: false, valued: false, reasons: ['not a number token'] };
+  }
+  if (rest.length > 1 && rest.charAt(0) === '0' && (rest.charAt(1) === 'x' || rest.charAt(1) === 'X')) {
+    return { numberLike: true, conforming: false, valued: false, reasons: ['a hexadecimal literal is not allowed'] };
+  }
+  if (t.indexOf('_') >= 0) {
+    return { numberLike: true, conforming: false, valued: false, reasons: ['underscore digit separators are not allowed'] };
+  }
+  var intStart = i;
+  while (i < n && isDigitCh(t.charAt(i))) { i++; }
+  var intDigits = t.slice(intStart, i);
+  if (intDigits === '') { reasons.push('a digit is required before the decimal point'); }
+  else if (intDigits.length > 1 && intDigits.charAt(0) === '0') { reasons.push('leading zeros are not allowed'); }
+  var fracDigits = '';
+  var sawPoint = false;
+  if (i < n && t.charAt(i) === '.') {
+    sawPoint = true;
+    i++;
+    var fs = i;
+    while (i < n && isDigitCh(t.charAt(i))) { i++; }
+    fracDigits = t.slice(fs, i);
+    if (fracDigits === '') { reasons.push('a fraction part needs at least one digit after the decimal point'); }
+  }
+  var expSign = 1;
+  var expDigits = '';
+  var sawExp = false;
+  var expEmpty = false;
+  if (i < n && (t.charAt(i) === 'e' || t.charAt(i) === 'E')) {
+    sawExp = true;
+    i++;
+    if (i < n && (t.charAt(i) === '+' || t.charAt(i) === '-')) {
+      if (t.charAt(i) === '-') { expSign = -1; }
+      i++;
+    }
+    var es = i;
+    while (i < n && isDigitCh(t.charAt(i))) { i++; }
+    expDigits = t.slice(es, i);
+    if (expDigits === '') { reasons.push('an exponent part needs at least one digit'); expEmpty = true; }
+  }
+  if (i < n) {
+    reasons.push('unexpected characters after the number');
+    return { numberLike: true, conforming: false, valued: false, reasons: reasons };
+  }
+  if (intDigits === '' && fracDigits === '') {
+    return { numberLike: true, conforming: false, valued: false, reasons: reasons.concat(['no digits found']) };
+  }
+  var valued = !expEmpty;
+  var conforming = reasons.length === 0;
+  return {
+    numberLike: true,
+    conforming: conforming,
+    valued: valued,
+    reasons: reasons,
+    sign: sign,
+    intDigits: intDigits,
+    fracDigits: fracDigits,
+    expSign: expSign,
+    expDigits: expDigits,
+    sawPoint: sawPoint,
+    sawExp: sawExp
+  };
+}
+
+/* ---------------- per literal analysis ---------------- */
+
+function literalDec(parts) {
+  var digits = parts.intDigits + parts.fracDigits;
+  var stripped = stripLeadingZeros(digits);
+  var m = (stripped === '' || stripped === '0') ? 0n : BigInt(stripped);
+  /* A zero significand is zero at every exponent. Returning early here is not an
+     optimisation: 0e999999999999 is legal JSON, and building 10^999999999999 to
+     multiply it by zero would hang the tab. */
+  if (m === 0n) { return mkDec(0n, 0); }
+  if (parts.sign < 0) { m = -m; }
+  var e = parts.exp10 - parts.fracDigits.length;
+  if (e > MAX_POW10 || e < -MAX_POW10) { throw new RangeError('decimal exponent above the exact comparison ceiling'); }
+  if (e >= 0) { return mkDec(m * pow10(e), 0); }
+  return mkDec(m, -e);
+}
+
+/* Decimal exponent as a Number. Clamped, not parsed, past 9 digits: the value is only
+   ever compared against HUGE_EXP, and parseInt on a 400 digit exponent is meaningless. */
+var EXP_SENTINEL = 1000000000;
+function exp10Of(parts) {
+  var d = stripLeadingZeros(parts.expDigits === '' ? '0' : parts.expDigits);
+  if (d.length > 9) { return parts.expSign * EXP_SENTINEL; }
+  var v = parseInt(d, 10);
+  if (!Number.isFinite(v)) { return 0; }
+  if (v > EXP_SENTINEL) { v = EXP_SENTINEL; }
+  return parts.expSign * v;
+}
+
+/* The double under test comes from JSON.parse itself, not from a lookalike. For a token
+   that matches the RFC 8259 grammar the two agree, and JSON.parse is the thing being
+   audited, so it is the one that gets to answer. */
+function parseJsonNumber(text) {
+  try { return JSON.parse(text); } catch (e) { return Number(text); }
+}
+
+/*
+  analyzeLiteral(text, parts) -> finding object for one RFC-conforming numeric literal.
+  Every field is a string, a boolean, or an integer. No NaN, no Infinity, no null.
+*/
+function analyzeLiteral(text, parts) {
+  var f = {
+    text: text,
+    cls: 'CLEAN',
+    sub: '',
+    changed: false,
+    parsedExact: '',
+    parsedExactLen: 0,
+    parsedExactClipped: false,
+    reprint: '',
+    reprintIdentical: false,
+    serialized: '',
+    delta: '',
+    deltaClipped: false,
+    rel: '',
+    naiveFlags: false,
+    nearestChecked: false,
+    nearestOk: true,
+    note: ''
+  };
+  var digitCount = parts.intDigits.length + parts.fracDigits.length;
+  if (digitCount > MAX_DIGITS) {
+    f.cls = 'SKIPPED';
+    f.note = 'exact comparison skipped: this literal carries ' + digitCount + ' digits, above the ' + MAX_DIGITS + ' digit limit';
+    return f;
+  }
+  var exp10 = exp10Of(parts);
+  parts.exp10 = exp10;
+  var d = parseJsonNumber(text);
+  f.reprint = Number.isFinite(d) ? String(d) : (d > 0 ? 'Infinity' : '-Infinity');
+  f.serialized = Number.isFinite(d) ? JSON.stringify(d) : 'null';
+  f.reprintIdentical = f.reprint === text;
+  f.naiveFlags = f.reprint !== text;
+
+  var stripped = stripLeadingZeros(parts.intDigits + parts.fracDigits);
+  var isZeroLiteral = stripped === '' || stripped === '0';
+  var sigLen = isZeroLiteral ? 0 : stripped.length;
+  var approxExp = isZeroLiteral ? 0 : (sigLen - 1 + exp10 - parts.fracDigits.length);
+
+  if (!Number.isFinite(d)) {
+    f.cls = 'S1_VISIBLE';
+    f.sub = 'overflows to IEEE 754 infinity';
+    f.changed = true;
+    f.parsedExact = 'IEEE 754 infinity';
+    f.delta = 'unbounded';
+    f.rel = 'unbounded';
+    f.note = 'JSON.stringify writes null for a non-finite number, so re-serializing this document replaces the value with null';
+    return f;
+  }
+  if (d === 0 && !isZeroLiteral) {
+    f.cls = 'S1_VISIBLE';
+    f.sub = 'underflows to zero';
+    f.changed = true;
+    f.parsedExact = '0';
+    f.delta = 'the entire value';
+    f.rel = '1.00e+0';
+    return f;
+  }
+  if (!isZeroLiteral && (approxExp > HUGE_EXP || approxExp < -HUGE_EXP)) {
+    f.cls = 'SKIPPED';
+    f.note = 'exact comparison skipped: the literal sits outside 1e-' + HUGE_EXP + ' to 1e' + HUGE_EXP +
+      ', which is wider than binary64 can hold in either direction';
+    return f;
+  }
+
+  var lit;
+  try {
+    lit = literalDec(parts);
+  } catch (err) {
+    f.cls = 'SKIPPED';
+    f.note = 'exact comparison skipped: ' + (err && err.message ? err.message : 'exponent out of range');
+    return f;
+  }
+  var dbl = doubleToDec(d);
+  var cmp = decCmp(dbl, lit);
+  f.changed = cmp !== 0;
+
+  var pe = clipDigits(decToString(dbl), 60);
+  f.parsedExact = pe.text;
+  f.parsedExactLen = pe.len;
+  f.parsedExactClipped = pe.clipped;
+
+  var litIsInteger = decIsInteger(lit);
+  var outOfInterop = false;
+  if (litIsInteger) {
+    var iv = decToIntegerBigInt(lit);
+    var mag = iv < 0n ? -iv : iv;
+    outOfInterop = mag > TWO53_MINUS_1;
+  }
+
+  if (f.changed) {
+    var diff = decSub(dbl, lit);
+    var ad = decAbs(diff);
+    var ds = clipDigits(signedDecString(diff), 40);
+    f.delta = ds.text;
+    f.deltaClipped = ds.clipped;
+    var la = decAbs(lit);
+    if (!decIsZero(la)) {
+      var r = decAlign(ad, la);
+      f.rel = ratioSci(r[0], r[1], 3);
+    } else {
+      f.rel = 'undefined against a zero literal';
+    }
+    var u = ulpDec(d);
+    var r2 = decAlign(mkDec(ad.n * 2n, ad.k), u);
+    f.nearestChecked = true;
+    f.nearestOk = r2[0] <= r2[1];
+
+    if (litIsInteger) {
+      if (f.reprintIdentical) {
+        f.cls = 'S1_INVISIBLE';
+        f.sub = 'integer value changed, re-print is byte-for-byte identical';
+      } else {
+        f.cls = 'S1_VISIBLE';
+        f.sub = 'integer past 2^53-1';
+      }
+    } else if (!f.reprintIdentical) {
+      f.cls = 'S1_VISIBLE';
+      f.sub = 'decimal precision beyond binary64';
+    } else {
+      f.cls = 'S3_DECIMAL';
+      f.sub = 'ordinary inexact decimal';
+    }
+    return f;
+  }
+
+  f.delta = '0';
+  f.rel = '0';
+  if (litIsInteger && outOfInterop) {
+    f.cls = 'S2_INTEROP';
+    f.sub = 'exact in binary64, outside the RFC 8259 interoperability range';
+    return f;
+  }
+  if (!f.reprintIdentical) {
+    f.cls = 'FORMAT';
+    if (parts.sign < 0 && isZeroLiteral) { f.sub = 'negative zero'; }
+    else if (parts.sawExp) { f.sub = 'exponent form rewritten'; }
+    else if (parts.sawPoint) { f.sub = 'trailing or redundant zeros dropped'; }
+    else { f.sub = 'spelling rewritten'; }
+    return f;
+  }
+  f.cls = 'CLEAN';
+  return f;
+}
+
+/* ---------------- tokenizer ---------------- */
+
+function isRunChar(ch) {
+  return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+    ch === '+' || ch === '-' || ch === '.' || ch === '_';
+}
+/* A run is treated as a number token only if a parser could plausibly read it as one.
+   A bare word such as undefined is a structural problem, not a number-grammar problem,
+   and putting it in the number lane would inflate the token count with things that were
+   never numbers. NaN and Infinity stay in, because tolerant parsers do accept them. */
+function looksNumeric(raw) {
+  var c = raw.charAt(0);
+  if ((c >= '0' && c <= '9') || c === '-' || c === '+' || c === '.') { return true; }
+  var lower = raw.toLowerCase();
+  return lower === 'nan' || lower === 'infinity' || lower === 'inf';
+}
+function describeChar(ch) {
+  var c = ch.charCodeAt(0);
+  if (c >= 0x20 && c <= 0x7e) { return "'" + ch + "'"; }
+  return 'code point ' + c;
+}
+function tokenize(src) {
+  var toks = [];
+  var i = 0;
+  var n = src.length;
+  var strayErrors = [];
+  while (i < n) {
+    var code = src.charCodeAt(i);
+    if (code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d) { i++; continue; }
+    var ch = src.charAt(i);
+    if (ch === '{' || ch === '}' || ch === '[' || ch === ']' || ch === ':' || ch === ',') {
+      toks.push({ t: 'p', v: ch, s: i, e: i + 1 });
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      var j = i + 1;
+      var closed = false;
+      while (j < n) {
+        var cj = src.charAt(j);
+        if (cj === '\\') { j += 2; continue; }
+        if (cj === '"') { closed = true; j++; break; }
+        j++;
+      }
+      if (!closed) {
+        strayErrors.push({ off: i, msg: 'unterminated string' });
+        toks.push({ t: 'str', v: src.slice(i + 1), s: i, e: n, bad: true });
+        i = n;
+        break;
+      }
+      toks.push({ t: 'str', v: src.slice(i + 1, j - 1), s: i, e: j });
+      i = j;
+      continue;
+    }
+    if (isRunChar(ch)) {
+      var k = i;
+      while (k < n && isRunChar(src.charAt(k))) { k++; }
+      var raw = src.slice(i, k);
+      if (raw === 'true' || raw === 'false' || raw === 'null') { toks.push({ t: 'lit', v: raw, s: i, e: k }); }
+      else if (looksNumeric(raw)) { toks.push({ t: 'num', v: raw, s: i, e: k }); }
+      else { toks.push({ t: 'word', v: raw, s: i, e: k }); }
+      i = k;
+      continue;
+    }
+    strayErrors.push({ off: i, msg: 'unexpected character ' + describeChar(ch) });
+    toks.push({ t: 'bad', v: ch, s: i, e: i + 1 });
+    i++;
+  }
+  return { toks: toks, strayErrors: strayErrors };
+}
+
+/* ---------------- structural walk for JSON paths ---------------- */
+
+function keySegment(key) {
+  var ok = key.length > 0;
+  for (var i = 0; i < key.length && ok; i++) {
+    var c = key.charAt(i);
+    var alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c === '_';
+    var digit = c >= '0' && c <= '9';
+    if (i === 0 ? !alpha : !(alpha || digit)) { ok = false; }
+  }
+  if (ok) { return '.' + key; }
+  return '[' + JSON.stringify(key) + ']';
+}
+
+function assignPaths(toks) {
+  var stack = [];
+  var i = 0;
+  var path = '$';
+  var mode = 'value';
+  var res = { ok: true, off: 0, msg: '' };
+  function fail(off, msg) { res.ok = false; res.off = off; res.msg = msg; return res; }
+  function tokAt(idx) { return idx < toks.length ? toks[idx] : null; }
+  function endOff() { return toks.length ? toks[toks.length - 1].e : 0; }
+
+  if (toks.length === 0) { return fail(0, 'no JSON value found'); }
+
+  for (;;) {
+    if (mode === 'value') {
+      var tv = tokAt(i);
+      if (!tv) { return fail(endOff(), 'unexpected end of input where a value was expected'); }
+      if (tv.t === 'num' || tv.t === 'lit' || tv.t === 'str') {
+        if (tv.t === 'num') { tv.path = path; }
+        i++;
+        mode = 'after';
+      } else if (tv.t === 'p' && tv.v === '{') {
+        i++;
+        stack.push({ kind: 'obj', base: path, index: 0 });
+        var nx = tokAt(i);
+        if (nx && nx.t === 'p' && nx.v === '}') { i++; stack.pop(); mode = 'after'; }
+        else { mode = 'key'; }
+      } else if (tv.t === 'p' && tv.v === '[') {
+        i++;
+        stack.push({ kind: 'arr', base: path, index: 0 });
+        var nx2 = tokAt(i);
+        if (nx2 && nx2.t === 'p' && nx2.v === ']') { i++; stack.pop(); mode = 'after'; }
+        else { path = path + '[0]'; mode = 'value'; }
+      } else {
+        return fail(tv.s, 'expected a value, found ' + describeTok(tv));
+      }
+      if (stack.length > 4000) { return fail(tv.s, 'nesting deeper than 4000 levels'); }
+      continue;
+    }
+    if (mode === 'key') {
+      var tk = tokAt(i);
+      if (!tk) { return fail(endOff(), 'unexpected end of input where an object key was expected'); }
+      if (tk.t !== 'str') { return fail(tk.s, 'expected a quoted object key, found ' + describeTok(tk)); }
+      i++;
+      var tc = tokAt(i);
+      if (!tc || tc.t !== 'p' || tc.v !== ':') { return fail(tc ? tc.s : endOff(), 'expected a colon after an object key'); }
+      i++;
+      path = stack[stack.length - 1].base + keySegment(tk.v);
+      mode = 'value';
+      continue;
+    }
+    if (stack.length === 0) { break; }
+    var top = stack[stack.length - 1];
+    var ta = tokAt(i);
+    if (!ta) { return fail(endOff(), 'unexpected end of input inside ' + (top.kind === 'obj' ? 'an object' : 'an array')); }
+    if (ta.t === 'p' && ta.v === ',') {
+      i++;
+      if (top.kind === 'arr') { top.index++; path = top.base + '[' + top.index + ']'; mode = 'value'; }
+      else { mode = 'key'; }
+      continue;
+    }
+    if (ta.t === 'p' && ((top.kind === 'obj' && ta.v === '}') || (top.kind === 'arr' && ta.v === ']'))) {
+      i++;
+      stack.pop();
+      mode = 'after';
+      continue;
+    }
+    return fail(ta.s, 'expected a comma or a closing ' + (top.kind === 'obj' ? 'brace' : 'bracket') + ', found ' + describeTok(ta));
+  }
+  if (i < toks.length) { return fail(toks[i].s, 'trailing content after the top-level value'); }
+  return res;
+}
+function describeTok(t) {
+  if (t.t === 'str') { return 'a string'; }
+  if (t.t === 'num' || t.t === 'word') { return 'the token ' + clipDigits(t.v, 30).text; }
+  if (t.t === 'lit') { return t.v; }
+  if (t.t === 'bad') { return describeChar(t.v); }
+  return "'" + t.v + "'";
+}
+
+/* ---------------- line index ---------------- */
+
+function lineStarts(src) {
+  var starts = [0];
+  for (var i = 0; i < src.length; i++) { if (src.charCodeAt(i) === 10) { starts.push(i + 1); } }
+  return starts;
+}
+function posOf(starts, off) {
+  var lo = 0;
+  var hi = starts.length - 1;
+  while (lo < hi) {
+    var mid = (lo + hi + 1) >> 1;
+    if (starts[mid] <= off) { lo = mid; } else { hi = mid - 1; }
+  }
+  return { line: lo + 1, col: off - starts[lo] + 1 };
+}
+
+/* ---------------- the audit ---------------- */
+
+function audit(src) {
+  var report = {
+    ok: true,
+    refusal: '',
+    inputChars: src.length,
+    totalNumberTokens: 0,
+    conformingCount: 0,
+    parseOk: false,
+    parseError: '',
+    parseErrorLine: 0,
+    parseErrorCol: 0,
+    strayCount: 0,
+    wordTokens: 0,
+    changedCount: 0,
+    naiveFlaggedCount: 0,
+    missedByNaive: 0,
+    falseAlarmsByNaive: 0,
+    nearestChecked: 0,
+    nearestFailures: [],
+    skipped: [],
+    s1a: [],
+    s1b: [],
+    s2: [],
+    s3: { count: 0, worstText: '', worstDelta: '', worstRel: '' },
+    format: { count: 0, negZero: 0, examples: [] },
+    clean: 0,
+    lane: []
+  };
+
+  if (src.length > MAX_INPUT_CHARS) {
+    report.ok = false;
+    report.refusal = 'Input is ' + fmtInt(src.length) + ' characters. This page refuses above ' + fmtInt(MAX_INPUT_CHARS) +
+      ' characters so the tab stays responsive. Split the document, or open this file locally and raise MAX_INPUT_CHARS.';
+    return report;
+  }
+  /* String.prototype.trim, not a regex. An anchored /\s+$/ over a megabyte of spaces
+     followed by one non-space backtracks quadratically. */
+  var trimmed = src.trim();
+  if (trimmed.length === 0) {
+    report.ok = false;
+    report.refusal = src.length === 0
+      ? 'Nothing to audit. Paste JSON into the box, or press Load example.'
+      : 'The input is ' + fmtInt(src.length) + ' characters of whitespace only. Paste JSON into the box, or press Load example.';
+    return report;
+  }
+
+  var starts = lineStarts(src);
+  var tk = tokenize(src);
+  var toks = tk.toks;
+  report.strayCount = tk.strayErrors.length;
+  var pathRes = assignPaths(toks);
+  report.parseOk = pathRes.ok;
+  if (!pathRes.ok) {
+    var p = posOf(starts, pathRes.off);
+    report.parseError = pathRes.msg;
+    report.parseErrorLine = p.line;
+    report.parseErrorCol = p.col;
+  }
+
+  var worstS3 = null;
+  for (var i = 0; i < toks.length; i++) {
+    var t = toks[i];
+    if (t.t === 'word') { report.wordTokens++; continue; }
+    if (t.t !== 'num') { continue; }
+    report.totalNumberTokens++;
+    var parts = classifyNumber(t.v);
+    var pos = posOf(starts, t.s);
+    if (!parts.conforming) {
+      var laneRow = {
+        text: t.v,
+        line: pos.line,
+        col: pos.col,
+        reasons: parts.reasons.slice(0),
+        valueNote: 'not computable'
+      };
+      if (parts.valued && parts.numberLike) {
+        parts.exp10 = exp10Of(parts);
+        var digitCount = parts.intDigits.length + parts.fracDigits.length;
+        if (digitCount > MAX_DIGITS) {
+          laneRow.valueNote = 'too many digits for exact comparison';
+        } else {
+          var canonical = (parts.sign < 0 ? '-' : '') + (parts.intDigits === '' ? '0' : stripLeadingZeros(parts.intDigits)) +
+            '.' + (parts.fracDigits === '' ? '0' : parts.fracDigits) + 'e' + String(parts.exp10);
+          var dd = Number(canonical);
+          var sig2 = stripLeadingZeros(parts.intDigits + parts.fracDigits);
+          var zero2 = sig2 === '' || sig2 === '0';
+          var ax = zero2 ? 0 : (sig2.length - 1 + parts.exp10 - parts.fracDigits.length);
+          if (!Number.isFinite(dd)) { laneRow.valueNote = 'overflows to IEEE 754 infinity under a tolerant parser'; }
+          else if (!zero2 && (ax > HUGE_EXP || ax < -HUGE_EXP)) { laneRow.valueNote = 'out of exact comparison range'; }
+          else if (dd === 0 && !zero2) { laneRow.valueNote = 'underflows to zero under a tolerant parser'; }
+          else {
+            try {
+              laneRow.valueNote = decCmp(doubleToDec(dd), literalDec(parts)) === 0
+                ? 'exact under a tolerant parser'
+                : 'changes under a tolerant parser';
+            } catch (err) { laneRow.valueNote = 'out of exact comparison range'; }
+          }
+        }
+      }
+      report.lane.push(laneRow);
+      continue;
+    }
+    report.conformingCount++;
+    var f = analyzeLiteral(t.v, parts);
+    f.path = typeof t.path === 'string' ? t.path : '';
+    f.line = pos.line;
+    f.col = pos.col;
+    if (f.naiveFlags) { report.naiveFlaggedCount++; }
+    if (f.changed) { report.changedCount++; }
+    if (f.changed && !f.naiveFlags) { report.missedByNaive++; }
+    if (!f.changed && f.naiveFlags) { report.falseAlarmsByNaive++; }
+    if (f.nearestChecked) {
+      report.nearestChecked++;
+      if (!f.nearestOk && report.nearestFailures.length < 20) { report.nearestFailures.push(f.text); }
+    }
+    if (f.cls === 'S1_INVISIBLE') { report.s1a.push(f); }
+    else if (f.cls === 'S1_VISIBLE') { report.s1b.push(f); }
+    else if (f.cls === 'S2_INTEROP') { report.s2.push(f); }
+    else if (f.cls === 'S3_DECIMAL') {
+      report.s3.count++;
+      var dAbs = decAbs(decSub(doubleToDec(Number(f.text)), literalDec(parts)));
+      if (worstS3 === null || decCmp(dAbs, worstS3) > 0) {
+        worstS3 = dAbs;
+        report.s3.worstText = f.text;
+        report.s3.worstDelta = f.delta;
+        report.s3.worstRel = f.rel;
+      }
+    } else if (f.cls === 'FORMAT') {
+      report.format.count++;
+      if (f.sub === 'negative zero') { report.format.negZero++; }
+      if (report.format.examples.length < 6) { report.format.examples.push({ text: f.text, reprint: f.reprint }); }
+    } else if (f.cls === 'SKIPPED') {
+      if (report.skipped.length < 20) { report.skipped.push({ text: clipDigits(f.text, 40).text, note: f.note }); }
+    } else { report.clean++; }
+  }
+  return report;
+}
+
+/* ---------------- fixtures ---------------- */
+
+var HERO_FIXTURES = ['801730537304183000', '3981889031900142000', '42420814076809180'];
+
+var EXAMPLE_JSON = [
+  '{',
+  '  "_headline": "Every id below changes value. All three re-print byte-for-byte identical, so String(JSON.parse(x)) !== x reports nothing.",',
+  '  "invisible": [',
+  '    { "id": 801730537304183000, "source": "upstream service that already round-tripped a bigint through a double" },',
+  '    { "id": 3981889031900142000, "source": "same" },',
+  '    { "id": 42420814076809180, "source": "same" }',
+  '  ],',
+  '  "visible": {',
+  '    "snowflake_id": 1234567890123456789,',
+  '    "int64_max": 9223372036854775807,',
+  '    "nanosecond_timestamp": 1723507200123456789,',
+  '    "two_pow_53_plus_1": 9007199254740993,',
+  '    "rfc_8259_precision_example": 3.141592653589793238462643383279,',
+  '    "rfc_8259_magnitude_example": 1E400,',
+  '    "underflow": 1e-400',
+  '  },',
+  '  "exact_but_outside_interoperability_range": {',
+  '    "two_pow_53": 9007199254740992,',
+  '    "ten_pow_22": 1e22',
+  '  },',
+  '  "prices": [19.99, 4.35, 0.1, 0.2, 2.675, 1.1, 8.07, 13.65, 0.25],',
+  '  "formatting_only": { "a": 1.0, "b": 1e2, "c": -0, "d": 1.500 },',
+  '  "clean": { "count": 42, "ratio": 0.5, "small_id": 900719925474099 }',
+  '}'
+].join('\n');
+
+var BAD_EXAMPLE_JSON = [
+  '{',
+  '  "leading_zero": 007,',
+  '  "leading_plus": +1,',
+  '  "bare_fraction": .5,',
+  '  "trailing_point": 5.,',
+  '  "hexadecimal": 0x1F,',
+  '  "underscores": 1_000_000,',
+  '  "not_a_number": NaN,',
+  '  "infinite": Infinity,',
+  '  "empty_exponent": 1e,',
+  '  "big_and_illegal": +801730537304183000',
+  '}'
+].join('\n');
+
+/* ---------------- DOM ---------------- */
+
+function boot() {
+  var $ = function (id) { return document.getElementById(id); };
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) { e.className = cls; }
+    if (text !== undefined && text !== null) { e.textContent = String(text); }
+    return e;
+  }
+  function tag(text, cls) {
+    var s = el('span', 'tag' + (cls ? ' ' + cls : ''), text);
+    return s;
+  }
+  function table(headers, rows) {
+    var wrap = el('div', 'tw');
+    var t = el('table', 'data');
+    var thead = el('thead');
+    var htr = el('tr');
+    for (var i = 0; i < headers.length; i++) { htr.appendChild(el('th', null, headers[i])); }
+    thead.appendChild(htr);
+    t.appendChild(thead);
+    var tb = el('tbody');
+    for (var r = 0; r < rows.length; r++) {
+      var tr = el('tr');
+      for (var c = 0; c < rows[r].length; c++) {
+        var cell = rows[r][c];
+        var td;
+        if (cell && typeof cell === 'object' && cell.node) { td = el('td', cell.cls || null); td.appendChild(cell.node); }
+        else { td = el('td', 'brk', cell === undefined || cell === null ? '' : String(cell)); }
+        tr.appendChild(td);
+      }
+      tb.appendChild(tr);
+    }
+    t.appendChild(tb);
+    wrap.appendChild(t);
+    return wrap;
+  }
+  function pathLabel(f) {
+    if (f.path) { return clipDigits(f.path, 90).text; }
+    return 'line ' + f.line + ', col ' + f.col;
+  }
+  function capNote(shown, total) {
+    return 'Showing ' + shown + ' of ' + total + ' rows. The count above is the real total, not the rendered total.';
+  }
+
+  /* hero */
+  function renderHero() {
+    var host = $('heroOut');
+    host.textContent = '';
+    var rows = [];
+    var allInvisible = true;
+    for (var i = 0; i < HERO_FIXTURES.length; i++) {
+      var text = HERO_FIXTURES[i];
+      var parts = classifyNumber(text);
+      var f = analyzeLiteral(text, parts);
+      if (f.cls !== 'S1_INVISIBLE') { allInvisible = false; }
+      rows.push([
+        text,
+        f.parsedExact,
+        f.delta,
+        f.reprintIdentical ? { node: tag('identical', 'bad'), cls: '' } : f.reprint,
+        { node: tag(f.naiveFlags ? 'flags it' : 'silent', f.naiveFlags ? 'ok' : 'bad'), cls: '' }
+      ]);
+    }
+    var wrapNode = table(
+      ['Literal', 'Exact value of the double', 'Off by', 'Re-print', 'String(JSON.parse(x)) !== x'],
+      rows
+    );
+    /* #heroOut is already the overflow container, so hand it the table, not a second wrapper. */
+    host.appendChild(wrapNode.firstChild);
+    if (!allInvisible) {
+      var warn = el('p', 'fine', 'At least one of the three literals above did not reproduce as an invisible change in this browser. The table shows what it actually did.');
+      host.parentNode.appendChild(warn);
+    }
+  }
+
+  /* results */
+  var lastReport = null;
+
+  function stat(n, label, hot) {
+    var d = el('div', 'stat' + (hot ? ' hot' : ''));
+    d.appendChild(el('div', 'n', String(n)));
+    d.appendChild(el('div', 'l', label));
+    return d;
+  }
+
+  function render(rep) {
+    var out = $('out');
+    out.textContent = '';
+    if (!rep.ok) {
+      var m = el('div', 'msg err');
+      m.appendChild(el('p', null, rep.refusal));
+      out.appendChild(m);
+      return;
+    }
+
+    var h2 = el('h2', null, 'Results');
+    out.appendChild(h2);
+
+    if (rep.totalNumberTokens === 0) {
+      var none = el('div', 'msg ok');
+      none.appendChild(el('p', null, rep.parseOk
+        ? 'Parsed as JSON. No number literals found, so there is nothing to audit.'
+        : 'No number literals found. The structural parse also failed: ' + rep.parseError + ' at line ' + rep.parseErrorLine + ', column ' + rep.parseErrorCol + '.'));
+      out.appendChild(none);
+      return;
+    }
+
+    var strip = el('div', 'stats');
+    strip.appendChild(stat(rep.s1a.length, 'Severity 1, invisible to the naive check', rep.s1a.length > 0));
+    strip.appendChild(stat(rep.changedCount, 'literals whose value changed', false));
+    strip.appendChild(stat(rep.missedByNaive, 'value changes the naive check misses', rep.missedByNaive > 0));
+    strip.appendChild(stat(rep.falseAlarmsByNaive, 'naive check false alarms', false));
+    strip.appendChild(stat(rep.totalNumberTokens, 'number tokens read', false));
+    out.appendChild(strip);
+
+    var lead = el('p');
+    if (rep.s1a.length > 0) {
+      lead.appendChild(el('strong', null, rep.s1a.length + (rep.s1a.length === 1 ? ' literal in this document changes value and re-prints byte-for-byte as what you pasted.' : ' literals in this document change value and re-print byte-for-byte as what you pasted.')));
+      lead.appendChild(document.createTextNode(' The check String(JSON.parse(x)) !== x is silent on ' + (rep.s1a.length === 1 ? 'it' : 'them') + '.'));
+    } else {
+      lead.appendChild(el('strong', null, 'No invisible value changes in this document.'));
+      lead.appendChild(document.createTextNode(' Every literal here either keeps its value exactly or announces the change in its re-print.'));
+    }
+    out.appendChild(lead);
+
+    if (!rep.parseOk) {
+      var pe = el('div', 'msg');
+      pe.appendChild(el('p', null, 'The structural parse failed: ' + rep.parseError + ' at line ' + rep.parseErrorLine + ', column ' + rep.parseErrorCol + '. All ' + rep.totalNumberTokens + ' number tokens were still lexed and audited. JSON paths are unavailable, so findings are located by line and column.'));
+      out.appendChild(pe);
+    }
+
+    out.appendChild(sectionS1a(rep));
+    out.appendChild(sectionS1b(rep));
+    out.appendChild(sectionS2(rep));
+    out.appendChild(sectionS3(rep));
+    out.appendChild(sectionFormat(rep));
+    out.appendChild(sectionLane(rep));
+    out.appendChild(sectionNotes(rep));
+  }
+
+  function panel(cls, heading, blurb) {
+    var p = el('div', 'panel ' + cls);
+    p.appendChild(el('h3', null, heading));
+    if (blurb) { p.appendChild(el('p', 'fine', blurb)); }
+    return p;
+  }
+  function emptyLine(p, text) { p.appendChild(el('p', 'muted', text)); }
+
+  function sectionS1a(rep) {
+    var p = panel('sev1a', 'Severity 1, invisible: value changed, re-print is byte-for-byte identical (' + rep.s1a.length + ')',
+      'The literal is integer valued, the double holds a different integer, and the double re-prints as the same characters. The text round-trips and the value does not.');
+    if (rep.s1a.length === 0) { emptyLine(p, 'None found in this input.'); return p; }
+    var shown = rep.s1a.slice(0, MAX_ROWS);
+    var rows = shown.map(function (f) {
+      return [pathLabel(f), f.text, f.parsedExact, f.delta, f.rel];
+    });
+    p.appendChild(table(['Location', 'Literal', 'Exact value of the double', 'Off by', 'Relative'], rows));
+    if (rep.s1a.length > shown.length) { p.appendChild(el('p', 'fine', capNote(shown.length, rep.s1a.length))); }
+    return p;
+  }
+
+  function sectionS1b(rep) {
+    var p = panel('sev1b', 'Severity 1, visible: value changed and the re-print differs (' + rep.s1b.length + ')',
+      'A different check would also catch these. They are still severity 1 because the value did not survive.');
+    if (rep.s1b.length === 0) { emptyLine(p, 'None found in this input.'); return p; }
+    var shown = rep.s1b.slice(0, MAX_ROWS);
+    var rows = shown.map(function (f) {
+      return [pathLabel(f), f.text, f.sub, f.parsedExact, f.reprint, f.delta];
+    });
+    p.appendChild(table(['Location', 'Literal', 'Class', 'Exact value of the double', 'Re-print', 'Off by'], rows));
+    if (rep.s1b.length > shown.length) { p.appendChild(el('p', 'fine', capNote(shown.length, rep.s1b.length))); }
+    var anyInf = rep.s1b.some(function (f) { return f.sub === 'overflows to IEEE 754 infinity'; });
+    if (anyInf) { p.appendChild(el('p', 'fine', 'At least one literal overflows. JSON.stringify writes null for a non-finite number, so re-serializing this document would replace that value with null.')); }
+    return p;
+  }
+
+  function sectionS2(rep) {
+    var p = panel('sev2', 'Severity 2: exact today, outside the RFC 8259 interoperability range (' + rep.s2.length + ')',
+      'These integers survive binary64 exactly. RFC 8259 section 6 names [-(2**53)+1, (2**53)-1] as the range where implementations agree exactly, and these sit outside it.');
+    if (rep.s2.length === 0) { emptyLine(p, 'None found in this input.'); return p; }
+    var shown = rep.s2.slice(0, MAX_ROWS);
+    var rows = shown.map(function (f) {
+      return [pathLabel(f), f.text, f.reprintIdentical ? 'identical' : f.reprint];
+    });
+    p.appendChild(table(['Location', 'Literal', 'Re-print'], rows));
+    if (rep.s2.length > shown.length) { p.appendChild(el('p', 'fine', capNote(shown.length, rep.s2.length))); }
+    return p;
+  }
+
+  function sectionS3(rep) {
+    var p = panel('sev3', 'Severity 3: ordinary inexact decimals (' + rep.s3.count + ')',
+      'One row on purpose. Each of these is off by at most half an ulp and re-prints identically. Listing them individually would bury the findings above.');
+    if (rep.s3.count === 0) { emptyLine(p, 'None found in this input.'); return p; }
+    p.appendChild(table(
+      ['Count', 'Largest absolute delta', 'Its literal', 'Its relative delta'],
+      [[String(rep.s3.count), rep.s3.worstDelta, rep.s3.worstText, rep.s3.worstRel]]
+    ));
+    return p;
+  }
+
+  function sectionFormat(rep) {
+    var p = panel('sev3', 'No value change, formatting only (' + rep.format.count + ')',
+      'The value survives exactly. Only the spelling changes on re-print. Every one of these is a false alarm from String(JSON.parse(x)) !== x.');
+    if (rep.format.count === 0) { emptyLine(p, 'None found in this input.'); return p; }
+    var ex = rep.format.examples.map(function (e) { return e.text + ' re-prints as ' + e.reprint; }).join('; ');
+    p.appendChild(table(
+      ['Count', 'Examples'],
+      [[String(rep.format.count), ex + (rep.format.count > rep.format.examples.length ? '; and ' + (rep.format.count - rep.format.examples.length) + ' more' : '')]]
+    ));
+    if (rep.format.negZero > 0) {
+      p.appendChild(el('p', 'fine', rep.format.negZero + ' of these ' + (rep.format.negZero === 1 ? 'is' : 'are') + ' negative zero. The double keeps the sign bit, JSON re-serialization writes 0, and Object.is(-0, 0) is false, so a sign-sensitive consumer can still see a difference the re-print hides.'));
+    }
+    return p;
+  }
+
+  function sectionLane(rep) {
+    var p = panel('lane', 'Separate lane: RFC 8259 number grammar (' + rep.lane.length + ')',
+      'This lane is about what your producer emitted, not about whether a value changed. It is counted separately on purpose: a token here may hold a perfectly representable value, and a token in the lanes above may be flawless JSON.');
+    if (rep.lane.length === 0) { emptyLine(p, 'Every number token in this input matches the RFC 8259 grammar.'); return p; }
+    var shown = rep.lane.slice(0, MAX_ROWS);
+    var rows = shown.map(function (r) {
+      return ['line ' + r.line + ', col ' + r.col, clipDigits(r.text, 40).text, r.reasons.join('; '), r.valueNote];
+    });
+    p.appendChild(table(['Location', 'Token', 'Why it is not conforming', 'Value under a tolerant parser'], rows));
+    if (rep.lane.length > shown.length) { p.appendChild(el('p', 'fine', capNote(shown.length, rep.lane.length))); }
+    return p;
+  }
+
+  function sectionNotes(rep) {
+    var p = panel('sev3', 'Document notes', null);
+    var ul = el('ul');
+    ul.appendChild(el('li', null, 'Number tokens read: ' + rep.totalNumberTokens + '. Matching the RFC 8259 grammar: ' + rep.conformingCount + '. Reported in the grammar lane: ' + rep.lane.length + '.'));
+    ul.appendChild(el('li', null, 'Literals whose value survives exactly and whose re-print is identical: ' + rep.clean + '.'));
+    if (rep.missedByNaive > 0) {
+      ul.appendChild(el('li', null, 'Of the ' + rep.missedByNaive + ' value change(s) String(JSON.parse(x)) !== x misses here, ' +
+        rep.s1a.length + ' are severity 1, integer valued, the class this page leads with, and ' +
+        (rep.missedByNaive - rep.s1a.length) + ' are ordinary inexact decimals. Both are real; only the first is worth acting on.'));
+    }
+    if (rep.falseAlarmsByNaive > 0) {
+      ul.appendChild(el('li', null, 'The ' + rep.falseAlarmsByNaive + ' naive false alarm(s) are literals whose value survives exactly and whose spelling does not: ' +
+        rep.format.count + ' formatting-only, and ' + (rep.falseAlarmsByNaive - rep.format.count) + ' from the other lanes, such as an exact integer that re-prints in exponent form.'));
+    }
+    ul.appendChild(el('li', null, 'Structural parse: ' + (rep.parseOk ? 'succeeded, so every finding carries a JSON path.' : 'failed, so findings carry a line and column instead of a path.')));
+    if (rep.nearestChecked > 0) {
+      ul.appendChild(el('li', null, rep.nearestFailures.length === 0
+        ? 'Correct rounding: all ' + rep.nearestChecked + ' changed literals were verified in BigInt to be the nearest double, with twice the absolute error at or below one ulp.'
+        : 'Correct rounding: ' + rep.nearestFailures.length + ' of ' + rep.nearestChecked + ' changed literals were NOT the nearest double in this browser. First offenders: ' + rep.nearestFailures.slice(0, 5).join(', ') + '.'));
+    }
+    if (rep.strayCount > 0) {
+      ul.appendChild(el('li', null, rep.strayCount + ' character position(s) outside the JSON grammar were found while lexing.'));
+    }
+    if (rep.wordTokens > 0) {
+      ul.appendChild(el('li', null, rep.wordTokens + ' bare word token(s) were found. They are not numbers, so they are not counted above and not reported in the grammar lane.'));
+    }
+    if (rep.skipped.length > 0) {
+      ul.appendChild(el('li', null, rep.skipped.length + ' literal(s) were skipped for exact comparison. First: ' + rep.skipped[0].text + ' (' + rep.skipped[0].note + ').'));
+    }
+    ul.appendChild(el('li', null, 'Input size: ' + rep.inputChars + ' characters.'));
+    p.appendChild(ul);
+    p.appendChild(el('p', 'fine', 'Every number on this page is a property of the text in the box. None of it is a claim about any system that produced or consumes that text.'));
+    return p;
+  }
+
+  /* text report and JSON export */
+  function textReport(rep) {
+    var L = [];
+    L.push('JSON Precision Auditor report');
+    if (!rep.ok) { L.push(''); L.push(rep.refusal); return L.join('\n'); }
+    L.push('');
+    L.push('Input characters: ' + rep.inputChars);
+    L.push('Number tokens read: ' + rep.totalNumberTokens);
+    L.push('Structural parse: ' + (rep.parseOk ? 'ok' : 'failed (' + rep.parseError + ' at line ' + rep.parseErrorLine + ', col ' + rep.parseErrorCol + ')'));
+    L.push('');
+    L.push('Value changed (exact BigInt comparison): ' + rep.changedCount);
+    L.push('Missed by String(JSON.parse(x)) !== x: ' + rep.missedByNaive);
+    L.push('False alarms from String(JSON.parse(x)) !== x: ' + rep.falseAlarmsByNaive);
+    L.push('');
+    L.push('SEVERITY 1, INVISIBLE (value changed, re-print identical): ' + rep.s1a.length);
+    rep.s1a.slice(0, MAX_EXPORT).forEach(function (f) {
+      L.push('  ' + (f.path || ('line ' + f.line + ' col ' + f.col)) + '  ' + f.text + '  ->  ' + f.parsedExact + '  (off by ' + f.delta + ')');
+    });
+    if (rep.s1a.length > MAX_EXPORT) { L.push('  ... ' + (rep.s1a.length - MAX_EXPORT) + ' more, of ' + rep.s1a.length + ' total'); }
+    L.push('');
+    L.push('SEVERITY 1, VISIBLE (value changed, re-print differs): ' + rep.s1b.length);
+    rep.s1b.slice(0, MAX_EXPORT).forEach(function (f) {
+      L.push('  ' + (f.path || ('line ' + f.line + ' col ' + f.col)) + '  ' + f.text + '  ->  ' + f.parsedExact + '  [' + f.sub + ']');
+    });
+    if (rep.s1b.length > MAX_EXPORT) { L.push('  ... ' + (rep.s1b.length - MAX_EXPORT) + ' more, of ' + rep.s1b.length + ' total'); }
+    L.push('');
+    L.push('SEVERITY 2 (exact, outside the RFC 8259 interoperability range): ' + rep.s2.length);
+    rep.s2.slice(0, MAX_EXPORT).forEach(function (f) {
+      L.push('  ' + (f.path || ('line ' + f.line + ' col ' + f.col)) + '  ' + f.text);
+    });
+    if (rep.s2.length > MAX_EXPORT) { L.push('  ... ' + (rep.s2.length - MAX_EXPORT) + ' more, of ' + rep.s2.length + ' total'); }
+    L.push('');
+    L.push('SEVERITY 3 (ordinary inexact decimals): ' + rep.s3.count +
+      (rep.s3.count ? '  largest absolute delta ' + rep.s3.worstDelta + ' on ' + rep.s3.worstText : ''));
+    L.push('FORMATTING ONLY (value unchanged): ' + rep.format.count);
+    L.push('RFC 8259 GRAMMAR LANE: ' + rep.lane.length);
+    rep.lane.slice(0, MAX_EXPORT).forEach(function (r) {
+      L.push('  line ' + r.line + ' col ' + r.col + '  ' + clipDigits(r.text, 40).text + '  ' + r.reasons.join('; '));
+    });
+    if (rep.lane.length > MAX_EXPORT) { L.push('  ... ' + (rep.lane.length - MAX_EXPORT) + ' more, of ' + rep.lane.length + ' total'); }
+    L.push('');
+    L.push('Every figure above is a property of the audited text.');
+    return L.join('\n');
+  }
+
+  function jsonExport(rep) {
+    if (!rep.ok) { return JSON.stringify({ ok: false, refusal: rep.refusal }, null, 2); }
+    function mapF(f) {
+      return {
+        location: f.path || ('line ' + f.line + ', col ' + f.col),
+        literal: f.text,
+        exactValueOfDouble: f.parsedExact,
+        offBy: f.delta,
+        relativeDelta: f.rel,
+        reprint: f.reprint,
+        reprintIdentical: f.reprintIdentical,
+        serializedByJsonStringify: f.serialized,
+        subclass: f.sub
+      };
+    }
+    var obj = {
+      ok: true,
+      inputCharacters: rep.inputChars,
+      numberTokensRead: rep.totalNumberTokens,
+      structuralParse: rep.parseOk ? 'ok' : ('failed: ' + rep.parseError + ' at line ' + rep.parseErrorLine + ', column ' + rep.parseErrorCol),
+      valueChangedCount: rep.changedCount,
+      missedByNaiveHeuristic: rep.missedByNaive,
+      falseAlarmsFromNaiveHeuristic: rep.falseAlarmsByNaive,
+      truncatedExportAt: MAX_EXPORT,
+      severity1Invisible: { total: rep.s1a.length, findings: rep.s1a.slice(0, MAX_EXPORT).map(mapF) },
+      severity1Visible: { total: rep.s1b.length, findings: rep.s1b.slice(0, MAX_EXPORT).map(mapF) },
+      severity2Interoperability: { total: rep.s2.length, findings: rep.s2.slice(0, MAX_EXPORT).map(mapF) },
+      severity3OrdinaryInexactDecimals: {
+        total: rep.s3.count,
+        largestAbsoluteDelta: rep.s3.count ? rep.s3.worstDelta : '',
+        largestAbsoluteDeltaLiteral: rep.s3.count ? rep.s3.worstText : '',
+        largestRelativeDeltaShown: rep.s3.count ? rep.s3.worstRel : ''
+      },
+      formattingOnly: { total: rep.format.count, negativeZeros: rep.format.negZero },
+      rfc8259GrammarLane: {
+        total: rep.lane.length,
+        findings: rep.lane.slice(0, MAX_EXPORT).map(function (r) {
+          return { location: 'line ' + r.line + ', col ' + r.col, token: clipDigits(r.text, 200).text, reasons: r.reasons, valueUnderTolerantParser: r.valueNote };
+        })
+      },
+      correctRounding: {
+        changedLiteralsChecked: rep.nearestChecked,
+        notNearestDouble: rep.nearestFailures.length,
+        offenders: rep.nearestFailures.slice(0, 20)
+      }
+    };
+    return JSON.stringify(obj, null, 2);
+  }
+
+  /* clipboard */
+  function copyText(str, label) {
+    var done = function (ok) {
+      $('status').textContent = ok ? (label + ' copied to the clipboard.') : (label + ' could not be copied. The report is selected in the box below so you can copy it manually.');
+    };
+    var fallback = function () {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = str;
+        ta.setAttribute('readonly', 'readonly');
+        ta.style.position = 'fixed';
+        ta.style.top = '-1000px';
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        done(!!ok);
+      } catch (e) { done(false); }
+    };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(str).then(function () { done(true); }, fallback);
+        return;
+      }
+    } catch (e) { /* fall through */ }
+    fallback();
+  }
+
+  /* theme */
+  function currentTheme() { return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark'; }
+  function setTheme(t) {
+    document.documentElement.setAttribute('data-theme', t);
+    $('themeBtn').textContent = t === 'light' ? 'Dark theme' : 'Light theme';
+    try { localStorage.setItem('jpa-theme', t); } catch (e) { /* private mode */ }
+  }
+
+  /* wiring */
+  function run() {
+    var src = $('src').value;
+    $('status').textContent = 'Auditing ' + src.length + ' characters...';
+    window.setTimeout(function () {
+      var t0 = Date.now();
+      var rep;
+      try {
+        rep = audit(src);
+      } catch (e) {
+        rep = { ok: false, refusal: 'The audit stopped on an internal error: ' + (e && e.message ? e.message : String(e)) + '. Nothing was sent anywhere. Try a smaller document.' };
+      }
+      lastReport = rep;
+      render(rep);
+      var ms = Date.now() - t0;
+      $('status').textContent = rep.ok
+        ? ('Audited ' + rep.totalNumberTokens + ' number tokens in ' + ms + ' ms, in this browser.')
+        : 'Nothing audited.';
+    }, 0);
+  }
+
+  $('runBtn').addEventListener('click', run);
+  $('exBtn').addEventListener('click', function () { $('src').value = EXAMPLE_JSON; run(); });
+  $('exBadBtn').addEventListener('click', function () { $('src').value = BAD_EXAMPLE_JSON; run(); });
+  $('clearBtn').addEventListener('click', function () {
+    $('src').value = '';
+    lastReport = null;
+    $('out').textContent = '';
+    $('status').textContent = 'Cleared.';
+    $('src').focus();
+  });
+  $('copyTxtBtn').addEventListener('click', function () {
+    if (!lastReport) { $('status').textContent = 'Nothing to copy yet. Press Audit first.'; return; }
+    copyText(textReport(lastReport), 'Report');
+  });
+  $('copyJsonBtn').addEventListener('click', function () {
+    if (!lastReport) { $('status').textContent = 'Nothing to copy yet. Press Audit first.'; return; }
+    copyText(jsonExport(lastReport), 'Findings JSON');
+  });
+  $('themeBtn').addEventListener('click', function () { setTheme(currentTheme() === 'light' ? 'dark' : 'light'); });
+  $('src').addEventListener('keydown', function (ev) {
+    if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') { ev.preventDefault(); run(); }
+  });
+
+  $('themeBtn').textContent = currentTheme() === 'light' ? 'Dark theme' : 'Light theme';
+  renderHero();
+}
+
+if (typeof document !== 'undefined' && document.getElementById) { boot(); }
+</script>
+</body>
+</html>
