@@ -252,7 +252,7 @@ footer nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-bottom: 8px; 
 
 <h2>What this refuses to do</h2>
 <ul>
-  <li>It does not report per-key string versus number type drift. That falls out of a per-key type union during schema inference, and <a href="https://0xelitesystem.github.io/json-to-json-schema/">json-to-json-schema</a> already infers schemas from pasted JSON.</li>
+  <li>It does not report per-key string versus number type drift. That falls out of a per-key type union during schema inference, and <a href="https://0xelitesystem.github.io/json-sample-to-schema/">json-sample-to-schema</a> already infers schemas from pasted JSON.</li>
   <li>It does not rewrite your JSON. It does not suggest a fix, because the fix depends on a wire format decision only you can make: quote the ID as a string, use a BigInt aware parser, or accept the loss.</li>
   <li>It does not tell you whether your production system is broken. Every verdict on this page is a property of the text in the box.</li>
   <li>It refuses input above 4,000,000 characters rather than freezing the tab, and prints the size it received.</li>

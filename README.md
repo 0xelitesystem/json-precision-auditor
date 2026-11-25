@@ -82,7 +82,7 @@ range of -(2**53)+1 through (2**53)-1 is a note in the same section, not a limit
 
 **What it refuses to do.** It does not report string-versus-number type drift for a key, because
 that falls out of a per-key type union during schema inference, which is
-[json-to-json-schema](https://0xelitesystem.github.io/json-to-json-schema/)'s job, not this one. It
+[json-sample-to-schema](https://0xelitesystem.github.io/json-sample-to-schema/)'s job, not this one. It
 does not rewrite your JSON or recommend a fix, because the fix is a wire-format decision: quote the
 ID as a string, use a bigint-aware parser, or accept the loss. It does not tell you whether your
 production system is broken. Every verdict it prints is a property of the text in the box.
@@ -117,7 +117,7 @@ lane, with the real total printed).
 
 ## Related
 
-- [json-to-json-schema](https://0xelitesystem.github.io/json-to-json-schema/) infers a schema from
+- [json-sample-to-schema](https://0xelitesystem.github.io/json-sample-to-schema/) infers a schema from
   pasted JSON. Per-key type drift belongs there, which is why this tool does not report it.
 - [json-formatter-and-validator](https://0xelitesystem.github.io/json-formatter-and-validator/)
   formats and validates through the browser's own JSON parser. That is the parser this tool audits:
