@@ -119,10 +119,10 @@ lane, with the real total printed).
 
 - [json-sample-to-schema](https://0xelitesystem.github.io/json-sample-to-schema/) infers a schema from
   pasted JSON. Per-key type drift belongs there, which is why this tool does not report it.
-- [json-formatter-and-validator](https://0xelitesystem.github.io/json-formatter-and-validator/)
+- [json-format-minify-validate](https://0xelitesystem.github.io/json-format-minify-validate/)
   formats and validates through the browser's own JSON parser. That is the parser this tool audits:
   by the time a formatter has a value to print, the evidence is gone.
-- [unix-timestamp-converter](https://0xelitesystem.github.io/unix-timestamp-converter/) converts
+- [epoch-seconds-ms-converter](https://0xelitesystem.github.io/epoch-seconds-ms-converter/) converts
   timestamps. Nanosecond timestamps past 2^53 are one of the visible severity 1 classes here.
 - [structured-output-and-json-mode-reference](https://github.com/0xelitesystem/structured-output-and-json-mode-reference)
   covers getting reliable JSON out of a language model. Reference repo, no live page.
